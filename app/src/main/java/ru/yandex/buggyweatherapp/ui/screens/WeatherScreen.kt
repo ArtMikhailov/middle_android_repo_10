@@ -1,7 +1,6 @@
 package ru.yandex.buggyweatherapp.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,60 +8,32 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import ru.yandex.buggyweatherapp.model.WeatherData
+import ru.yandex.buggyweatherapp.ui.components.LocationSearch
 import ru.yandex.buggyweatherapp.utils.WeatherIconMapper
 import ru.yandex.buggyweatherapp.viewmodel.WeatherViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeatherScreen(viewModel: WeatherViewModel, modifier: Modifier = Modifier) {
-    
-    val context = LocalContext.current
-    
-    
-    DisposableEffect(Unit) {
-        
-        viewModel.initialize(context)
-        
-        onDispose {
-            
-        }
-    }
-    
-    
-    val weatherData by viewModel.weatherData.observeAsState()
-    val isLoading by viewModel.isLoading.observeAsState(false)
-    val error by viewModel.error.observeAsState()
-    val cityName by viewModel.cityName.observeAsState("")
-    
-    var searchText by remember { mutableStateOf("") }
+
+    val uiState = viewModel.uiState.collectAsState()
     
     Column(
         modifier = modifier
@@ -70,48 +41,31 @@ fun WeatherScreen(viewModel: WeatherViewModel, modifier: Modifier = Modifier) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        OutlinedTextField(
-            value = searchText,
-            onValueChange = { searchText = it },
-            label = { Text("Search city") },
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = {
-                IconButton(onClick = { 
-                    
-                    viewModel.searchWeatherByCity(searchText) 
-                }) {
-                    Icon(Icons.Default.Search, contentDescription = "Search")
-                }
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { 
-                viewModel.searchWeatherByCity(searchText) 
-            })
+        LocationSearch(
+            onCitySearch = { viewModel.requestWeatherByCity(it) },
+            onLocationRequest = { viewModel.requestWeatherByLocation() },
         )
         
         Spacer(modifier = Modifier.height(16.dp))
-        
-        
-        if (isLoading && weatherData == null) {
-            Text("Loading weather data...")
-        }
-        
-        
-        error?.let {
-            Text(
-                text = it,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(8.dp)
-            )
-        }
-        
-        weatherData?.let { weather ->
-            WeatherCard(
-                weather = weather,
-                cityName = cityName,
-                onFavoriteClick = { viewModel.toggleFavorite() },
-                onRefreshClick = { viewModel.fetchCurrentLocationWeather() }
-            )
+
+        when(val state = uiState.value) {
+            is WeatherViewModel.UiState.Loading -> {
+                Text("Loading weather data...")
+            }
+            is WeatherViewModel.UiState.Error -> {
+                Text(
+                    text = state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+            is WeatherViewModel.UiState.Success -> {
+                WeatherCard(
+                    weather = state.weather,
+                    onFavoriteClick = { viewModel.toggleFavorite() },
+                    onRefreshClick = { viewModel.refreshWeather() }
+                )
+            }
         }
     }
 }
@@ -119,7 +73,6 @@ fun WeatherScreen(viewModel: WeatherViewModel, modifier: Modifier = Modifier) {
 @Composable
 fun WeatherCard(
     weather: WeatherData,
-    cityName: String,
     onFavoriteClick: () -> Unit,
     onRefreshClick: () -> Unit
 ) {
@@ -139,7 +92,7 @@ fun WeatherCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = cityName.ifEmpty { weather.cityName },
+                    text = weather.cityName,
                     style = MaterialTheme.typography.headlineMedium
                 )
                 

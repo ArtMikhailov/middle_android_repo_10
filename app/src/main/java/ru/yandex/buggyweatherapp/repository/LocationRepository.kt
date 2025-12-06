@@ -1,6 +1,6 @@
 package ru.yandex.buggyweatherapp.repository
 
-import android.content.Context
+import android.app.Application
 import android.location.Geocoder
 import android.os.Looper
 import android.util.Log
@@ -11,96 +11,102 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import ru.yandex.buggyweatherapp.model.Location
-import ru.yandex.buggyweatherapp.utils.LocationTracker
 import java.util.Locale
 
+/*
+1. Заменил Context на Application, чтобы внутрь мог попасть только Application context,
+чтобы предотвратить возможную утечку памяти, связанную с передачей конекста Activity.
+
+2. Устранил утечку памяти через сallback передаваемый в метод getCurrentLocation.
+
+3. Добавил метод cancelLocationUpdates для остановки получения обновлений локации
+когда это больше не нужно.
+ */
 class LocationRepository(
-    
-    private val context: Context
+    private val application: Application
 ) {
-    
     private val fusedLocationClient: FusedLocationProviderClient = 
-        LocationServices.getFusedLocationProviderClient(context)
-    
-    
+        LocationServices.getFusedLocationProviderClient(application)
     private var currentLocation: Location? = null
-    
-    
-    private var locationCallback: ((Location?) -> Unit)? = null
-    
-    
-    fun getCurrentLocation(callback: (Location?) -> Unit) {
+    private var locationCallback: LocationCallback? = null
+    private var locationListener: ((Location?) -> Unit)? = null
+
+    fun addLocationListener(listener: (Location?) -> Unit) {
+        locationListener = listener
+    }
+
+    fun removeLocationListener() {
+        locationListener = null
+    }
+
+    fun getCurrentLocation() {
         try {
-            locationCallback = callback
-            
-            
+            cancelLocationUpdates()
             fusedLocationClient.lastLocation
                 .addOnSuccessListener { location ->
                     if (location != null) {
                         val userLocation = Location(
                             latitude = location.latitude,
-                            longitude = location.longitude
+                            longitude = location.longitude,
+                            name = getCityNameFromCoordinates(location.latitude, location.longitude)
                         )
                         currentLocation = userLocation
-                        callback(userLocation)
+                        locationListener?.invoke(userLocation)
                     } else {
-                        
-                        requestLocationUpdates(callback)
+                        requestUpdatesTillFirstNonNullLocation()
                     }
                 }
                 .addOnFailureListener { e ->
                     Log.e("LocationRepository", "Error getting location", e)
-                    callback(null)
+                    locationListener?.invoke(null)
                 }
         } catch (e: SecurityException) {
             Log.e("LocationRepository", "Location permission not granted", e)
-            callback(null)
+            locationListener?.invoke(null)
         }
     }
     
     
-    private fun requestLocationUpdates(callback: (Location?) -> Unit) {
+    private fun requestUpdatesTillFirstNonNullLocation() {
         try {
             val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
                 .setWaitForAccurateLocation(false)
                 .setMinUpdateIntervalMillis(5000)
                 .build()
             
-            val locationCallback = object : LocationCallback() {
+            locationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
                     locationResult.lastLocation?.let { location ->
                         val userLocation = Location(
                             latitude = location.latitude,
-                            longitude = location.longitude
+                            longitude = location.longitude,
+                            name = getCityNameFromCoordinates(location.latitude, location.longitude)
                         )
                         currentLocation = userLocation
-                        callback(userLocation)
-                        
-                        
+                        locationListener?.invoke(userLocation)
+                        cancelLocationUpdates()
                     }
                 }
+            }.also {
+                fusedLocationClient.requestLocationUpdates(
+                    locationRequest,
+                    it,
+                    Looper.getMainLooper()
+                )
             }
-            
-            
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                Looper.getMainLooper()
-            )
         } catch (e: SecurityException) {
             Log.e("LocationRepository", "Location permission not granted", e)
-            callback(null)
+            locationListener?.invoke(null)
         }
     }
-    
-    
-    fun getCityNameFromLocation(location: Location): String? {
+
+    private fun getCityNameFromCoordinates(latitude: Double, longitude: Double): String? {
         try {
             
-            val geocoder = Geocoder(context, Locale.getDefault())
+            val geocoder = Geocoder(application, Locale.getDefault())
             
             @Suppress("DEPRECATION")
-            val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+            val addresses = geocoder.getFromLocation(latitude, longitude, 1)
             
             return if (!addresses.isNullOrEmpty()) {
                 val address = addresses[0]
@@ -119,11 +125,11 @@ class LocationRepository(
             return null
         }
     }
-    
-    
-    fun startLocationTracking() {
-        LocationTracker.getInstance(context).startTracking()
+
+    fun cancelLocationUpdates() {
+        locationCallback?.let { callback ->
+            fusedLocationClient.removeLocationUpdates(callback)
+            locationCallback = null
+        }
     }
-    
-    
 }

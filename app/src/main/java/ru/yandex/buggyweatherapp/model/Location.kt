@@ -1,24 +1,13 @@
 package ru.yandex.buggyweatherapp.model
 
+/*
+Удалил переопределение equals() и toString() по причине:
+1. не был переопределен hashCode(), что нарушает контракт между equals() и hashCode()
+2. в написании своих реализаций в данном случае нет необходимости,
+data class автоматически генерирует для нас реализации этих методов.
+ */
 data class Location(
     val latitude: Double,
     val longitude: Double,
     val name: String? = null
-) {
-    
-    override fun toString(): String {
-        var result = ""
-        result += "Latitude: $latitude, "
-        result += "Longitude: $longitude"
-        name?.let {
-            result += ", Name: $it"
-        }
-        return result
-    }
-    
-    
-    override fun equals(other: Any?): Boolean {
-        if (other !is Location) return false
-        return latitude == other.latitude && longitude == other.longitude
-    }
-}
+)
