@@ -25,6 +25,6 @@ data class WeatherData(
     val rawApiData: String,
     
     
-    var isFavorite: Boolean = false,
+    val isFavorite: Boolean = false,
     var isSelected: Boolean = false
 )
