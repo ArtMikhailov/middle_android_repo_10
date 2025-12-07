@@ -14,7 +14,7 @@ import ru.yandex.buggyweatherapp.BuildConfig
 interface WeatherApiService {
 
     companion object {
-        const val API_KEY = BuildConfig.OPEN_WEATHER_API_KEY
+        const val API_KEY = BuildConfig.WEATHER_API_KEY
         const val BASE_URL = "https://api.openweathermap.org/data/2.5/"
     }
 

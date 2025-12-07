@@ -10,16 +10,18 @@ import java.util.concurrent.TimeUnit
 
 /*
 Изменеия:
-- Добавил таймауты для OkHttpClient
-- Добавил логирование запросов и ответов для дебажного билда
+- Добавил таймауты для OkHttpClient. Отсутсвие разумных таймаутов влечет за собой
+ряд проблем, таких как плохой пользовательский опыт,
+увеличение потребления ресурсов, и др.
+- Добавил логирование запросов и ответов для дебажного билда для упрощения отладки
  */
 object RetrofitInstance {
 
     private val retrofit by lazy {
         val okHttpBuilder = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
 
         if (BuildConfig.DEBUG) {
             val loggingInterceptor = HttpLoggingInterceptor().apply {

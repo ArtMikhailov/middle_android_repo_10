@@ -22,6 +22,11 @@ import ru.yandex.buggyweatherapp.repository.WeatherRepository
 4. Заменил механизм периодического обновления погоды с Timer.scheduleAtFixedRate()
 на корутины с delay в цикле while(isActive)
 5. Сделал внедрение зависимостей через конструктор
+6. Исправил баги путем
+- четкого разделения логики получения погоды по локации и по городу,
+- выделения UiState вместо разрозненных полей состояний,
+- перехода на suspend функции и корутины
+- обработки статуса разрешения на локацию
  */
 class WeatherViewModel(
     val locationRepository: LocationRepository,
@@ -53,20 +58,32 @@ class WeatherViewModel(
         }
     }
 
+    fun onLocationPermissionDenied() {
+        if (weatherMode == WeatherMode.Location) {
+            _uiState.value = UiState.Error(
+                "Location permission not granted. " +
+                        "Please enable in settings or search weather by city name."
+            )
+        }
+    }
+
     fun requestWeatherByLocation() {
         cancelWeatherJobs()
         weatherMode = WeatherMode.Location
-        locationRepository.addLocationListener(::onCurrentLocation)
         fetchCurrentLocationWeather()
         startAutoRefresh()
     }
 
     fun requestWeatherByCity(city: String) {
-        releaseCurrentLocationUpdates()
         cancelWeatherJobs()
         weatherMode = WeatherMode.City(city)
         searchWeatherByCity(city)
         startAutoRefresh()
+    }
+
+    private fun cancelWeatherJobs() {
+        fetchWeatherJob?.cancel()
+        autoRefreshJob?.cancel()
     }
 
     fun refreshWeather() {
@@ -79,32 +96,35 @@ class WeatherViewModel(
             }
         }
     }
-    
+
     private fun fetchCurrentLocationWeather() {
         _uiState.value = UiState.Loading
-        locationRepository.getCurrentLocation()
-    }
-
-    private fun onCurrentLocation(location: Location?) {
-        if (location != null) {
-            getWeatherForLocation(location)
-        } else {
-            _uiState.value = UiState.Error("Unable to get current location")
-        }
-    }
-
-    private fun getWeatherForLocation(location: Location) {
-        _uiState.value = UiState.Loading
         fetchWeatherJob = viewModelScope.launch {
-            weatherRepository.getWeatherData(location).fold(
-                onSuccess = { data ->
-                    _uiState.value = UiState.Success(data)
+            locationRepository.getCurrentLocation().fold(
+                onSuccess = { location ->
+                    getWeatherForLocation(location)
                 },
-                onFailure = { error ->
-                    _uiState.value = UiState.Error(error.message ?: "Unknown error")
+                onFailure = {
+                    if (it is SecurityException) {
+                        onLocationPermissionDenied()
+                    } else {
+                        _uiState.value =
+                            UiState.Error(it.message ?: "Unable to get current location")
+                    }
                 }
             )
         }
+    }
+
+    private suspend fun getWeatherForLocation(location: Location) {
+        weatherRepository.getWeatherData(location).fold(
+            onSuccess = { data ->
+                _uiState.value = UiState.Success(data)
+            },
+            onFailure = { error ->
+                _uiState.value = UiState.Error(error.message ?: "Unknown error")
+            }
+        )
     }
     
     private fun searchWeatherByCity(city: String) {
@@ -135,16 +155,6 @@ class WeatherViewModel(
         }
     }
 
-    private fun releaseCurrentLocationUpdates() {
-        locationRepository.removeLocationListener()
-        locationRepository.cancelLocationUpdates()
-    }
-
-    private fun cancelWeatherJobs() {
-        fetchWeatherJob?.cancel()
-        autoRefreshJob?.cancel()
-    }
-
     fun toggleFavorite() {
         val state = uiState.value
         if (state is UiState.Success) {
@@ -156,7 +166,7 @@ class WeatherViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        releaseCurrentLocationUpdates()
+        locationRepository.cancelLocationUpdates()
         cancelWeatherJobs()
     }
 }

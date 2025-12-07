@@ -12,4 +12,7 @@
     <string name="no_location_permission">Location permission is required to get current weather</string>
     <string name="location_error">Unable to get current location</string>
     <string name="network_error">Network error. Please check your connection</string>
+    <string name="location_permission_rationale_message">Please allow us to access your location, so we could show you weather data based on it!</string>
+    <string name="alert_dialog_positive_button">OK</string>
+    <string name="alert_dialog_negative_button">Cancel</string>
 </resources>

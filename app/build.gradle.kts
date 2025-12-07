@@ -21,14 +21,14 @@ android {
 
         val properties = Properties()
         properties.load(project.rootProject.file("local.properties").inputStream())
-        val apiKey = properties.getProperty("OPEN_WEATHER_API_KEY") ?: "OPEN_WEATHER_API_KEY_STUB!"
+        val apiKey = properties.getProperty("WEATHER_API_KEY") ?: ""
 
-        buildConfigField("String", "OPEN_WEATHER_API_KEY", "\"$apiKey\"")
+        buildConfigField("String", "WEATHER_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -10,70 +10,73 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.suspendCancellableCoroutine
 import ru.yandex.buggyweatherapp.model.Location
 import java.util.Locale
+import kotlin.coroutines.resume
 
 /*
 1. Заменил Context на Application, чтобы внутрь мог попасть только Application context,
 чтобы предотвратить возможную утечку памяти, связанную с передачей конекста Activity.
 
-2. Устранил утечку памяти через сallback передаваемый в метод getCurrentLocation.
+2. Устранил утечку памяти через сallback передаваемый в метод getCurrentLocation. Перевел
+на suspend функции.
 
-3. Добавил метод cancelLocationUpdates для остановки получения обновлений локации
-когда это больше не нужно.
+3. Добавил отмену остановки получения обновлений локации, когда это больше не нужно.
  */
 class LocationRepository(
     private val application: Application
 ) {
     private val fusedLocationClient: FusedLocationProviderClient = 
         LocationServices.getFusedLocationProviderClient(application)
-    private var currentLocation: Location? = null
     private var locationCallback: LocationCallback? = null
-    private var locationListener: ((Location?) -> Unit)? = null
 
-    fun addLocationListener(listener: (Location?) -> Unit) {
-        locationListener = listener
-    }
+    suspend fun getCurrentLocation(): Result<Location> =
+        suspendCancellableCoroutine { continuation ->
+            try {
+                fusedLocationClient.lastLocation
+                    .addOnSuccessListener { location ->
+                        if (location != null) {
+                            val userLocation = Location(
+                                latitude = location.latitude,
+                                longitude = location.longitude,
+                                name = getCityNameFromCoordinates(
+                                    location.latitude,
+                                    location.longitude
+                                )
+                            )
+                            continuation.resume(Result.success(userLocation))
+                        } else {
+                            requestUpdatesTillFirstNonNullLocation(continuation)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("LocationRepository", "Error getting location", e)
+                        continuation.resume(Result.failure(e))
+                    }
 
-    fun removeLocationListener() {
-        locationListener = null
-    }
-
-    fun getCurrentLocation() {
-        try {
-            cancelLocationUpdates()
-            fusedLocationClient.lastLocation
-                .addOnSuccessListener { location ->
-                    if (location != null) {
-                        val userLocation = Location(
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            name = getCityNameFromCoordinates(location.latitude, location.longitude)
-                        )
-                        currentLocation = userLocation
-                        locationListener?.invoke(userLocation)
-                    } else {
-                        requestUpdatesTillFirstNonNullLocation()
+                continuation.invokeOnCancellation {
+                    locationCallback?.let { callback ->
+                        fusedLocationClient.removeLocationUpdates(callback)
                     }
                 }
-                .addOnFailureListener { e ->
-                    Log.e("LocationRepository", "Error getting location", e)
-                    locationListener?.invoke(null)
-                }
-        } catch (e: SecurityException) {
-            Log.e("LocationRepository", "Location permission not granted", e)
-            locationListener?.invoke(null)
+            } catch (e: SecurityException) {
+                Log.e("LocationRepository", "Location permission not granted", e)
+                continuation.resume(Result.failure(e))
+            }
         }
-    }
-    
-    
-    private fun requestUpdatesTillFirstNonNullLocation() {
+
+
+    private fun requestUpdatesTillFirstNonNullLocation(
+        continuation: CancellableContinuation<Result<Location>>
+    ) {
         try {
             val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
                 .setWaitForAccurateLocation(false)
                 .setMinUpdateIntervalMillis(5000)
                 .build()
-            
+
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
                     locationResult.lastLocation?.let { location ->
@@ -82,9 +85,10 @@ class LocationRepository(
                             longitude = location.longitude,
                             name = getCityNameFromCoordinates(location.latitude, location.longitude)
                         )
-                        currentLocation = userLocation
-                        locationListener?.invoke(userLocation)
                         cancelLocationUpdates()
+                        if (continuation.isActive) {
+                            continuation.resume(Result.success(userLocation))
+                        }
                     }
                 }
             }.also {
@@ -96,7 +100,9 @@ class LocationRepository(
             }
         } catch (e: SecurityException) {
             Log.e("LocationRepository", "Location permission not granted", e)
-            locationListener?.invoke(null)
+            if (continuation.isActive) {
+                continuation.resume(Result.failure(e))
+            }
         }
     }
 
